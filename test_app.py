@@ -58,7 +58,8 @@ def test_login_wrong_password_shows_error(client):
     """
     resp = client.post("/", data={"username": "admin", "password": "000000"})
     assert resp.status_code == 200
-    assert b"RENDERED_ERROR:Sai tai\xE0 kho\xE2n ho\xe1c m\xe1t kh\xe2u" in resp.data or b"RENDERED_ERROR:Sai tài khoản hoặc mật khẩu" in resp.data
+    assert "Sai tài khoản hoặc mật khẩu" in resp.data.decode("utf-8")
+
 
 
 # TC03: Sai username
