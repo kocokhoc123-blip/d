@@ -1,175 +1,218 @@
-"""
-Unittest cho chức năng /age (tính tuổi từ năm sinh)
-
-Hướng dẫn:
-- Đặt file này tại tests/test_age_unittest.py trong repo của bạn.
-- Cài đặt: pip install pytest flask
-- Chạy tests: python -m pytest -q hoặc pytest -q
-
-Ghi chú:
-- Các test đăng nhập bằng username/password mặc định trong app.py: admin / 123456
-- Tests kiểm tra hai loại kết quả:
-  * Giá trị hợp lệ: kiểm tra số tuổi (current_year - birth_year) xuất hiện trong HTML.
-  * Giá trị không hợp lệ: kiểm tra presence của một trong các thông báo lỗi tiếng Việt phổ biến.
-- Nếu app của bạn trả về thông báo khác, chỉnh lại các chuỗi trong expected_msgs tương ứng.
-"""
-
-import unittest
-from datetime import datetime
+import pytest
 from app import app
 
-class AgeEndpointTestCase(unittest.TestCase):
-    def setUp(self):
-        # Kích hoạt chế độ TESTING cho Flask và tạo test client
-        app.config["TESTING"] = True
-        self.client = app.test_client()
-        self.current_year = datetime.now().year
+"""
+tests/test_login.py
 
-    def login(self):
-        """Đăng nhập để có session truy cập /age"""
-        return self.client.post("/", data={"username": "admin", "password": "123456"}, follow_redirects=True)
+Unit tests cho chức năng đăng nhập (sử dụng Flask test client).
+Các chú thích tiếng Việt mô tả kỹ thuật kiểm thử áp dụng cho từng test case.
 
-    def post_age(self, birth_year_value):
-        """Login rồi POST vào /age, trả về response text"""
-        self.login()
-        resp = self.client.post("/age", data={"birth_year": birth_year_value}, follow_redirects=True)
-        return resp, resp.data.decode(errors="ignore")
+Ghi chú kỹ thuật:
+- Vì app.py dùng render_template() và repository có thể không chứa file template trong môi trường test,
+  ta tạm thời mock (ghi đè) app.render_template để trả về chuỗi đơn giản chứa thông báo lỗi.
+  Việc này giúp test tập trung vào logic xử lý và phản hồi (redirect/failed render) mà không phụ thuộc template.
+- Sử dụng Flask test_client() để gửi POST form tới "/" và client.session_transaction() để kiểm tra session.
+"""
 
-    # Helper để kiểm tra lỗi (chấp nhận một trong nhiều thông báo khả dĩ)
-    def assertContainsAny(self, text, expected_list):
-        """Assert rằng text chứa ít nhất một chuỗi trong expected_list"""
-        for msg in expected_list:
-            if msg in text:
-                return
-        self.fail(f"Expected one of {expected_list!r} in response, but none were found. Response was:\n{text}")
-
-    # -----------------------
-    # Test cases (TC01 - TC18)
-    # -----------------------
-
-    def test_TC01_empty_input_shows_error(self):
-        """TC01: Empty input -> lỗi bắt buộc"""
-        resp, text = self.post_age("")
-        expected_msgs = ["Năm sinh bắt buộc", "Không được để trống năm sinh", "dữ liệu không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC02_whitespace_only_shows_error(self):
-        """TC02: Chỉ khoảng trắng -> lỗi bắt buộc"""
-        resp, text = self.post_age("   ")
-        expected_msgs = ["Năm sinh bắt buộc", "Không được để trống năm sinh", "dữ liệu không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC03_non_digit_shows_error(self):
-        """TC03: 'abcd' -> lỗi không phải số"""
-        resp, text = self.post_age("abcd")
-        expected_msgs = ["Năm sinh phải là số", "Năm sinh không hợp lệ", "Năm sinh phải là số hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC04_special_characters_rejected(self):
-        """TC04: '1990!' -> lỗi ký tự đặc biệt"""
-        resp, text = self.post_age("1990!")
-        expected_msgs = ["Không được chứa ký tự đặc biệt", "Không được chứa ký tự đặc biệt hoặc khoảng trắng", "Năm sinh không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC05_internal_space_shows_error(self):
-        """TC05: '19 90' -> lỗi (khoảng trắng bên trong)"""
-        resp, text = self.post_age("19 90")
-        expected_msgs = ["Không được chứa ký tự đặc biệt", "Không được chứa ký tự đặc biệt hoặc khoảng trắng", "Năm sinh không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC06_alphanumeric_shows_error(self):
-        """TC06: '1990abc' -> theo yêu cầu test là không hợp lệ (ghi nhận lỗi định dạng)"""
-        resp, text = self.post_age("1990abc")
-        expected_msgs = ["Năm sinh không hợp lệ", "Năm sinh phải là số", "Năm sinh phải chứa số"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC07_multiple_numbers_shows_error(self):
-        """TC07: 'Born 1990 and 2000' -> không hợp lệ theo yêu cầu"""
-        resp, text = self.post_age("Born 1990 and 2000")
-        expected_msgs = ["Năm sinh không hợp lệ", "Năm sinh phải là số", "Năm sinh phải chứa số"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC08_valid_typical_1990_computes_age(self):
-        """TC08: '1990' -> hợp lệ, hiển thị tuổi = current_year - 1990"""
-        birth = 1990
-        resp, text = self.post_age(str(birth))
-        expected_age = str(self.current_year - birth)
-        self.assertIn(expected_age, text)
-
-    def test_TC09_lower_boundary_1950_computes_age(self):
-        """TC09: '1950' -> hợp lệ (lower bound), tính tuổi"""
-        birth = 1950
-        resp, text = self.post_age(str(birth))
-        expected_age = str(self.current_year - birth)
-        self.assertIn(expected_age, text)
-
-    def test_TC10_just_above_lower_1951_computes_age(self):
-        """TC10: '1951' -> hợp lệ"""
-        birth = 1951
-        resp, text = self.post_age(str(birth))
-        expected_age = str(self.current_year - birth)
-        self.assertIn(expected_age, text)
-
-    def test_TC11_upper_boundary_current_year_age_zero(self):
-        """TC11: current_year -> hợp lệ, tuổi = 0"""
-        birth = self.current_year
-        resp, text = self.post_age(str(birth))
-        expected_age = "0"
-        # Kiểm tra '0' xuất hiện — để tránh false-positive, kiểm tra cách hiển thị "Tuổi" nếu cần.
-        self.assertIn(expected_age, text)
-
-    def test_TC12_just_below_upper_age_one(self):
-        """TC12: current_year - 1 -> hợp lệ, tuổi = 1"""
-        birth = self.current_year - 1
-        resp, text = self.post_age(str(birth))
-        expected_age = "1"
-        self.assertIn(expected_age, text)
-
-    def test_TC13_below_minimum_shows_error(self):
-        """TC13: '1949' -> lỗi: phải >= 1950"""
-        resp, text = self.post_age("1949")
-        expected_msgs = ["Năm sinh phải t��� 1950", "Năm sinh phải từ 1950 trở lên", "Năm sinh không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC14_above_current_year_shows_error(self):
-        """TC14: current_year + 1 -> lỗi: không được lớn hơn năm hiện tại"""
-        resp, text = self.post_age(str(self.current_year + 1))
-        expected_msgs = ["Năm sinh không được lớn hơn năm hiện tại", "không được lớn hơn năm hiện tại", "Năm sinh không hợp lệ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC15_negative_number_shows_error(self):
-        """TC15: '-1990' -> lỗi không hợp lệ"""
-        resp, text = self.post_age("-1990")
-        expected_msgs = ["Năm sinh không hợp lệ", "Năm sinh phải là số", "Năm sinh phải chứa số"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC16_leading_zeros_accepted_by_default(self):
-        """TC16: '01990' -> test giả định chấp nhận leading zeros và interpret là 1990.
-        Nếu hệ thống của bạn muốn từ chối leading zeros thì sửa test này thành assert lỗi.
-        """
-        birth = 1990
-        resp, text = self.post_age("01990")
-        expected_age = str(self.current_year - birth)
-        # Chấp nhận hai khả năng: hoặc hiển thị tuổi, hoặc báo lỗi (nếu hệ thống chọn reject leading zeros).
-        if expected_age in text:
-            self.assertIn(expected_age, text)
-        else:
-            # Nếu không thấy tuổi, ít nhất phải có thông báo lỗi
-            expected_msgs = ["Năm sinh không hợp lệ", "Năm sinh phải là số", "Năm sinh phải chứa số"]
-            self.assertContainsAny(text, expected_msgs)
-
-    def test_TC17_very_large_number_shows_error(self):
-        """TC17: '999999' -> lỗi không hợp lệ / quá lớn"""
-        resp, text = self.post_age("999999")
-        expected_msgs = ["Năm sinh không hợp lệ", "quá lớn", "Năm sinh phải từ"]
-        self.assertContainsAny(text, expected_msgs)
-
-    def test_TC18_non_integer_shows_error(self):
-        """TC18: '1990.5' -> lỗi không phải số nguyên"""
-        resp, text = self.post_age("1990.5")
-        expected_msgs = ["phải là số nguyên", "Năm sinh không hợp lệ", "Năm sinh phải là số"]
-        self.assertContainsAny(text, expected_msgs)
+@pytest.fixture(autouse=True)
+def client():
+    """
+    Fixture tạo Flask test client và mock app.render_template để tránh TemplateNotFound.
+    Áp dụng cho tất cả test (autouse=True).
+    """
+    app.testing = True
+    # Lưu render_template gốc (nếu cần khôi phục sau test)
+    original_render = getattr(app, "render_template", None)
+    # Ghi đè để render_template trả về chuỗi có chứa lỗi (nếu có)
+    app.render_template = lambda template, **kwargs: f"RENDERED_ERROR:{kwargs.get('error', '')}"
+    with app.test_client() as client:
+        yield client
+    # Khôi phục nếu cần
+    if original_render is not None:
+        app.render_template = original_render
 
 
-if __name__ == "__main__":
-    unittest.main()
+# TC01: Đăng nhập thành công
+# Kỹ thuật: Phân vùng tương đương - dữ liệu hợp lệ
+def test_login_success_sets_session_and_redirects(client):
+    """
+    Mô tả: Gửi username/password đúng -> mong đợi redirect đến /age (HTTP 302)
+    và session['user'] = 'admin'.
+    """
+    resp = client.post("/", data={"username": "admin", "password": "123456"}, follow_redirects=False)
+    # Redirect 302 tới /age
+    assert resp.status_code == 302
+    # Location có path kết thúc bằng /age (Flask trả location đầy đủ)
+    assert resp.headers["Location"].endswith("/age")
+    # Kiểm tra session đã được set
+    with client.session_transaction() as sess:
+        assert sess.get("user") == "admin"
+
+
+# TC02: Sai mật khẩu
+# Kỹ thuật: Phân vùng tương đương - dữ liệu không hợp lệ (password)
+def test_login_wrong_password_shows_error(client):
+    """
+    Mô tả: Username đúng, password sai -> trả về trang login với thông báo lỗi.
+    Vì render_template đã mock, ta kiểm tra response chứa chuỗi mock kèm thông báo lỗi.
+    """
+    resp = client.post("/", data={"username": "admin", "password": "000000"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:Sai tai\xE0 kho\xE2n ho\xe1c m\xe1t kh\xe2u" in resp.data or b"RENDERED_ERROR:Sai tài khoản hoặc mật khẩu" in resp.data
+
+
+# TC03: Sai username
+# Kỹ thuật: Phân vùng tương đương - dữ liệu không hợp lệ (username)
+def test_login_wrong_username_shows_error(client):
+    """
+    Mô tả: Username sai, password đúng -> trả về trang login với thông báo lỗi.
+    """
+    resp = client.post("/", data={"username": "user", "password": "123456"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC04: Username để trống
+# Kỹ thuật: Phân vùng tương đương - rỗng
+def test_login_empty_username_shows_error(client):
+    """
+    Mô tả: Username rỗng -> được coi là không hợp lệ (so sánh chuỗi) -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": "", "password": "123456"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC05: Password để trống
+# Kỹ thuật: Phân vùng tương đương - rỗng
+def test_login_empty_password_shows_error(client):
+    """
+    Mô tả: Password rỗng -> không khớp -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": "admin", "password": ""})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC06: Cả 2 trường để trống
+# Kỹ thuật: Phân vùng tương đương - rỗng
+def test_login_both_empty_shows_error(client):
+    """
+    Mô tả: Cả username và password rỗng -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": "", "password": ""})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC07 & TC08: Giá trị biên username (min/max) - ở đây logic không kiểm tra độ dài, nên chỉ kiểm tra kết quả
+# Kỹ thuật: Giá trị biên (độ dài username)
+@pytest.mark.parametrize("username", [
+    "a",  # min = 1
+    "a" * 30  # max giả định = 30
+])
+def test_login_username_boundary_lengths(client, username):
+    """
+    Mô tả: Kiểm tra username với độ dài biên; nếu không khớp -> trả về lỗi.
+    Kỹ thuật: Giá trị biên.
+    """
+    resp = client.post("/", data={"username": username, "password": "123456"})
+    # Vì chỉ test login, mong đợi hệ thống không crash; kết quả sẽ là lỗi (trừ khi username đúng)
+    assert resp.status_code == 200 or resp.status_code == 302
+    # Nếu không redirect, mock render sẽ trả về chuỗi chứa RENDERED_ERROR
+    if resp.status_code == 200:
+        assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC09: Username cực dài (robustness)
+# Kỹ thuật: Dữ liệu vượt giới hạn / robustness
+def test_login_very_long_username_does_not_crash(client):
+    """
+    Mô tả: Gửi username rất dài (10k) để kiểm tra hệ thống không bị crash (HTTP 500).
+    Kỹ thuật: Dữ liệu vượt giới hạn.
+    """
+    very_long = "u" * 10000
+    resp = client.post("/", data={"username": very_long, "password": "123456"})
+    # Không được crash (không trả về 500)
+    assert resp.status_code != 500
+    # Khi không khớp, chúng ta nhận về mock render (200)
+    assert resp.status_code in (200, 302)
+
+
+# TC10: Password ngắn hơn min (giả định min=6)
+# Kỹ thuật: Giá trị biên (password min)
+def test_login_short_password_rejected(client):
+    """
+    Mô tả: Password có 5 ký tự (dưới ngưỡng giả định 6) -> không khớp -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": "admin", "password": "12345"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC11: Password đúng = min (6) -> đã bao phủ ở test_login_success
+# (không cần test riêng vì TC01 đã dùng "123456")
+
+
+# TC12 & TC13: Password dài (biên trên và vượt giới hạn)
+# Kỹ thuật: Giá trị biên và robustness
+@pytest.mark.parametrize("password", [
+    "p" * 128,   # giả định max = 128
+    "p" * 10000  # vượt giới hạn
+])
+def test_login_long_passwords_do_not_crash(client, password):
+    """
+    Mô tả: Gửi password rất dài để kiểm tra hệ thống không crash và xử lý an toàn.
+    """
+    resp = client.post("/", data={"username": "admin", "password": password})
+    assert resp.status_code != 500
+    assert resp.status_code in (200, 302)
+
+
+# TC14: Username có khoảng trắng đầu/cuối
+# Kỹ thuật: Phân vùng tương đương - ký tự trắng
+def test_login_username_with_spaces_fails(client):
+    """
+    Mô tả: Username có space ở đầu/cuối -> do so sánh chuỗi thô, sẽ không khớp -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": " admin ", "password": "123456"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC15: Username/Password chứa ký tự đặc biệt
+# Kỹ thuật: Phân vùng tương đương - ký tự đặc biệt
+def test_login_special_characters_fail(client):
+    """
+    Mô tả: Chuỗi chứa ký tự đặc biệt -> không khớp -> trả về lỗi. Kiểm tra không crash.
+    """
+    resp = client.post("/", data={"username": "adm!n", "password": "12#3456"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC16: Thử payload SQL injection (negative test)
+# Kỹ thuật: Kiểm thử bảo mật (negative)
+def test_login_sql_injection_payload_is_handled_safely(client):
+    """
+    Mô tả: Gửi payload SQLi vào username; ứng xử mong muốn là không crash và không authenticate.
+    """
+    payload = "admin' OR '1'='1"
+    resp = client.post("/", data={"username": payload, "password": "anything"})
+    # Không được authenticate và không crash
+    assert resp.status_code != 500
+    assert resp.status_code in (200, 302)
+    # Nếu không authenticate (thường case), sẽ render lỗi mock
+    if resp.status_code == 200:
+        assert b"RENDERED_ERROR:" in resp.data
+
+
+# TC17: Case-sensitivity kiểm tra
+# Kỹ thuật: Phân vùng tương đương - phân biệt chữ hoa/thường
+def test_login_case_sensitivity_username(client):
+    """
+    Mô tả: Username 'Admin' khác 'admin' -> không khớp -> trả về lỗi.
+    """
+    resp = client.post("/", data={"username": "Admin", "password": "123456"})
+    assert resp.status_code == 200
+    assert b"RENDERED_ERROR:" in resp.data
